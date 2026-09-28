@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Firebase Authentication UID, not an email or a browser environment variable.
+    // Fail closed until the actual owner UID has been inserted.
+    function ownerUid() { return 'HZBmK8gg58TNYTZWMia9tmKYKq32'; }
+    function teacher() {
+      return ownerUid() != '__OWNER_UID_NOT_CONFIGURED__'
+        && request.auth != null && request.auth.uid == ownerUid();
+    }
+    function owns(data) { return teacher() && data.ownerId == ownerUid(); }
+    function validSet(d) {
+      return d.keys().hasOnly(['ownerId','title','folderId','unit','items','createdAt','updatedAt','published','shareId','schemaVersion','revision'])
+        && d.title is string && d.title.size() > 0 && d.title.size() <= 150
+        && d.unit is string && d.unit.size() <= 150 && d.items is list && d.items.size() >= 4
+        && d.published is bool && d.shareId is string && d.shareId.size() <= 100
+        && d.schemaVersion == 1 && d.revision is int && d.createdAt is timestamp && d.updatedAt == request.time
+        && (d.folderId == null || (d.folderId is string && owns(getAfter(/databases/$(database)/documents/folders/$(d.folderId)).data)));
+    }
+    match /users/{id} {
+      // Profiles are not used by this version; do not expose an extra write surface.
+      allow read, write: if false;
+    }
+    match /folders/{id} {
+      function valid(d) {
+        return d.keys().hasOnly(['ownerId','name','setCount','schemaVersion','createdAt','updatedAt'])
+          && d.name is string && d.name.size() > 0 && d.name.size() <= 100
+          && d.setCount is int && d.setCount >= 0 && d.schemaVersion == 1
+          && d.createdAt is timestamp && d.updatedAt == request.time;
+      }
+      allow read: if owns(resource.data);
+      allow create: if owns(request.resource.data) && valid(request.resource.data);
+      allow update: if owns(resource.data) && owns(request.resource.data) && valid(request.resource.data) && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if owns(resource.data) && resource.data.setCount == 0;
+    }
+    match /vocabularySets/{id} {
+      allow read: if owns(resource.data);
+      allow create: if owns(request.resource.data) && validSet(request.resource.data) && request.resource.data.createdAt == request.time && request.resource.data.revision == 1;
+      allow update: if owns(resource.data) && owns(request.resource.data) && validSet(request.resource.data)
+        && request.resource.data.shareId == resource.data.shareId && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if owns(resource.data);
+    }
+    match /publicationGrants/{shareId} {
+      allow get: if owns(resource.data);
+      allow list: if false;
+      allow create: if owns(request.resource.data) && request.resource.data.keys().hasOnly(['ownerId','setId'])
+        && owns(getAfter(/databases/$(database)/documents/vocabularySets/$(request.resource.data.setId)).data)
+        && getAfter(/databases/$(database)/documents/vocabularySets/$(request.resource.data.setId)).data.shareId == shareId;
+      allow update: if owns(resource.data) && request.resource.data == resource.data;
+      allow delete: if owns(resource.data);
+    }
+    match /publicPractices/{shareId} {
+      function grant() { return getAfter(/databases/$(database)/documents/publicationGrants/$(shareId)).data; }
+      function source() { return getAfter(/databases/$(database)/documents/vocabularySets/$(grant().setId)).data; }
+      function isPublished() {
+        let permission = get(/databases/$(database)/documents/publicationGrants/$(shareId)).data;
+        let original = get(/databases/$(database)/documents/vocabularySets/$(permission.setId)).data;
+        return ownerUid() != '__OWNER_UID_NOT_CONFIGURED__'
+          && permission.ownerId == ownerUid() && original.ownerId == ownerUid()
+          && original.shareId == shareId && original.published == true;
+      }
+      // Missing links can return 'not found'; existing data requires a live publication.
+      allow get: if !exists(/databases/$(database)/documents/publicPractices/$(shareId)) || isPublished();
+      allow list: if false;
+      allow create, update: if owns(grant()) && source().published == true
+        && request.resource.data.keys().hasOnly(['title','unit','items','schemaVersion'])
+        && request.resource.data.title == source().title && request.resource.data.unit == source().unit
+        && request.resource.data.items == source().items && request.resource.data.schemaVersion == 1;
+      allow delete: if owns(get(/databases/$(database)/documents/publicationGrants/$(shareId)).data);
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
