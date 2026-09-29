@@ -92,6 +92,8 @@ My library → Export downloads JSON containing all loaded teacher-owned sets an
 
 ## Deploy
 
+For this repository's GitHub Pages site, use the prepared GitHub Actions workflow and follow [GITHUB_PAGES_SETUP.md](GITHUB_PAGES_SETUP.md). It builds with `npm run build:pages` for `/Vocabulary-with-Ralina/`; publishing the source branch root directly does not build Vite. Firebase Web settings are supplied through repository secrets, not a committed `.env.local`.
+
 Firebase Hosting is the simplest option:
 
 ```sh

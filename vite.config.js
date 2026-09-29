@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
-export default defineConfig({
-  base: './',
+export default defineConfig(({ mode }) => ({
+  // Keep local development/Firebase Hosting unchanged; Pages serves a repository subpath.
+  base: mode === 'github-pages' ? '/Vocabulary-with-Ralina/' : './',
   build: {
     target: 'es2022',
     rollupOptions: { output: { onlyExplicitManualChunks: true, manualChunks(id) {
@@ -9,4 +10,4 @@ export default defineConfig({
       if (id.includes('node_modules')) return 'vendor';
     } } },
   },
-});
+}));
